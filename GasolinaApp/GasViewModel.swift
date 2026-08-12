@@ -6,7 +6,7 @@ import Combine
 @MainActor
 class GasViewModel: NSObject, ObservableObject, CLLocationManagerDelegate {
     // 🚩 INTERRUPTOR MAESTRO
-    @Published var isDevMode: Bool = false
+    @Published var isDevMode: Bool = true
     
     @Published var stations: [GasStation] = []
     @Published var isLoading = false
@@ -17,17 +17,18 @@ class GasViewModel: NSObject, ObservableObject, CLLocationManagerDelegate {
     let devLoc = CLLocationCoordinate2D(latitude: 33.9700, longitude: -118.2400)
     let devZip = "90001"
     
-    private let locationManager = CLLocationManager()
+    
     private let geocoder = CLGeocoder()
     
-    
+    // 1. Cambia el nombre de la variable y quita el 'private'
+    let clManager = CLLocationManager()
+
+    // 2. En el init, asegúrate de usar el nuevo nombre
     override init() {
         super.init()
-        locationManager.delegate = self
+        clManager.delegate = self // Antes decía locationManager.delegate
         
-        // Carga inicial automática
         if isDevMode {
-            print("🛠️ Modo DEV: Cargando USA de inmediato")
             startInitialFetch()
         } else {
             requestLocation()
@@ -43,8 +44,8 @@ class GasViewModel: NSObject, ObservableObject, CLLocationManagerDelegate {
         if isDevMode {
             refreshSearch()
         } else {
-            locationManager.requestWhenInUseAuthorization()
-            locationManager.startUpdatingLocation()
+            clManager.requestWhenInUseAuthorization()
+            clManager.startUpdatingLocation()
         }
     }
     
@@ -58,7 +59,7 @@ class GasViewModel: NSObject, ObservableObject, CLLocationManagerDelegate {
             let location = CLLocation(latitude: devLoc.latitude, longitude: devLoc.longitude)
             Task { await self.loadGasStations(zip: devZip, userLoc: location) }
         } else {
-            locationManager.startUpdatingLocation()
+            clManager.startUpdatingLocation()
         }
     }
     
@@ -69,7 +70,7 @@ class GasViewModel: NSObject, ObservableObject, CLLocationManagerDelegate {
             self.isLoading = false
             return
         }
-        locationManager.stopUpdatingLocation()
+        clManager.stopUpdatingLocation()
         
         Task {
             do {

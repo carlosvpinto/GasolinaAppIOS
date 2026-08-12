@@ -9,13 +9,24 @@ import Foundation
 import CoreLocation
 
 // 1. El modelo para la interfaz (SwiftUI)
-struct GasStation: Identifiable {
+struct GasStation: Identifiable, Equatable { // <--- Agregamos Equatable
     let id: String
     let name: String
     let coordinate: CLLocationCoordinate2D
     let price: Double
     var distanceMiles: Double = 0.0
-    var ranking: Int = 0 // <--- NUEVA VARIABLE
+    var ranking: Int = 0
+    
+    // Propiedad para el formateo de precio que hicimos antes
+    var formattedPrice: String {
+        String(format: "$%.2f", price)
+    }
+
+    // 🛠️ Función necesaria para Equatable:
+    // Comparamos el ID y el Ranking para saber si la lista cambió
+    static func == (lhs: GasStation, rhs: GasStation) -> Bool {
+        return lhs.id == rhs.id && lhs.ranking == rhs.ranking && lhs.price == rhs.price
+    }
 }
 
 // 2. Modelos para la Respuesta de Precios (Endpoint 1)
