@@ -4,10 +4,18 @@
 //
 //  Created by Carlos Vicente Pinto on 8/5/26.
 //
+//
+//  ContentView.swift
+//  GasolinaApp
+//
+//  Created by Carlos Vicente Pinto on 8/5/26.
+//
 import SwiftUI
 import MapKit
 
-// 2. VISTA PRINCIPAL
+// ==========================================
+// 1. VISTA PRINCIPAL
+// ==========================================
 struct ContentView: View {
     @StateObject var viewModel = GasViewModel()
     @State private var selectedStation: GasStation?
@@ -27,7 +35,7 @@ struct ContentView: View {
                 // ICONO DEL CARRO ACTUAL
                 if viewModel.isDevMode {
                     Annotation("Me", coordinate: viewModel.devLoc) {
-                        Image("icon_carro_b")
+                        Image("icon_carro_b") // Asegúrate de tener este asset en Xcode
                             .resizable().scaledToFit().frame(width: 40, height: 40).shadow(radius: 3)
                     }
                 } else {
@@ -42,7 +50,7 @@ struct ContentView: View {
                     Annotation(station.name, coordinate: station.coordinate) {
                         StationMarkerView(station: station)
                             .onTapGesture {
-                                selectedStation = station
+                                enfocarEstacion(station) // Función para mover cámara y abrir panel
                             }
                     }
                 }
@@ -51,46 +59,43 @@ struct ContentView: View {
             .preferredColorScheme(.dark)
             .ignoresSafeArea()
 
-            // CAPA 2: BOTÓN FLOTANTE (FAB)
+            // CAPA 2: BOTÓN FLOTANTE (RECARGAR)
             VStack {
                 Spacer()
                 HStack {
                     Spacer()
                     Button(action: {
                         viewModel.refreshSearch()
-                        withAnimation {
-                            if viewModel.isDevMode {
-                                cameraPosition = .camera(MapCamera(centerCoordinate: viewModel.devLoc, distance: 8000))
-                            } else {
-                                cameraPosition = .userLocation(fallback: .automatic)
-                            }
-                        }
                     }) {
                         ZStack {
-                            Circle().fill(Color(red: 0.05, green: 0.1, blue: 0.2)).frame(width: 60, height: 60)
-                            Image(systemName: "arrow.clockwise").font(.title2.bold()).foregroundColor(.white)
+                            Circle().fill(Color(red: 0.05, green: 0.1, blue: 0.2)).frame(width: 50, height: 50)
+                            Image(systemName: "arrow.clockwise").font(.title3.bold()).foregroundColor(.white)
                                 .rotationEffect(.degrees(viewModel.isLoading ? 360 : 0))
                                 .animation(viewModel.isLoading ? .linear(duration: 1).repeatForever(autoreverses: false) : .default, value: viewModel.isLoading)
                         }
-                        .overlay(Circle().stroke(Color.red, lineWidth: 3))
+                        .overlay(Circle().stroke(Color.red, lineWidth: 2))
                     }
-                    .padding(.trailing, 20)
-                    .padding(.bottom, viewModel.stations.isEmpty ? 30 : 160)
+                    .padding(.trailing, 16)
+                    // Sube el botón para que no lo tape la lista horizontal
+                    .padding(.bottom, viewModel.stations.isEmpty ? 30 : 130)
                 }
             }
 
-            // CAPA 3: LISTA DE TARJETAS
+            // CAPA 3: LISTA DE TARJETAS HORIZONTALES (CARRUSEL)
             VStack {
                 Spacer()
                 if !viewModel.stations.isEmpty {
                     ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 15) {
+                        HStack(spacing: 12) {
                             ForEach(viewModel.stations) { station in
                                 StationCard(station: station)
-                                    .onTapGesture { selectedStation = station }
+                                    .onTapGesture {
+                                        enfocarEstacion(station)
+                                    }
                             }
                         }
-                        .padding()
+                        .padding(.horizontal)
+                        .padding(.bottom, 20)
                     }
                 }
             }
@@ -110,9 +115,11 @@ struct ContentView: View {
                 ProgressView().padding().background(.ultraThinMaterial).cornerRadius(10)
             }
         }
+        // BOTTOM SHEET (PANEL INFERIOR)
         .sheet(item: $selectedStation) { station in
             detallesSheet(station: station)
         }
+        // ALERTAS DE ERROR
         .alert("Aviso", isPresented: Binding(
             get: { viewModel.errorMessage != nil },
             set: { _ in viewModel.errorMessage = nil }
@@ -123,26 +130,44 @@ struct ContentView: View {
                 Text(message)
             }
         }
-        // AJUSTE AUTOMÁTICO DE CÁMARA PARA QUE QUEPAN TODOS
-        // AJUSTE AUTOMÁTICO DE CÁMARA
-        // AJUSTE AUTOMÁTICO DE CÁMARA
-        .onChange(of: viewModel.stations) {
-            if !viewModel.stations.isEmpty {
-                // Obtenemos la posición del usuario (Real o DEV)
-                let posicionUsuario = viewModel.isDevMode ? viewModel.devLoc : (viewModel.clManager.location?.coordinate ?? viewModel.devLoc)
-                
-                // Calculamos la región perfecta
-                let region = regionParaEnfocar(estaciones: viewModel.stations, usuario: posicionUsuario)
-                
-                // Movemos la cámara
-                withAnimation(.easeInOut(duration: 1.5)) {
-                    cameraPosition = .region(region)
-                }
+        // AUTO-ENCUADRE AL CARGAR LAS ESTACIONES (Cuando la API responde)
+        .onChange(of: viewModel.stations) { newValue in
+            if !newValue.isEmpty {
+                volverAlEncuadreGlobal()
+            }
+        }
+        // AUTO-ENCUADRE AL CERRAR EL SHEET
+        .onChange(of: selectedStation) { newValue in
+            if newValue == nil && !viewModel.stations.isEmpty {
+                volverAlEncuadreGlobal()
             }
         }
     }
 
-    // VISTA DEL PANEL DE DETALLES (HOJA INFERIOR)
+    // ==========================================
+    // 2. FUNCIONES DE CÁMARA
+    // ==========================================
+    func enfocarEstacion(_ station: GasStation) {
+        selectedStation = station
+        withAnimation(.easeInOut(duration: 1.0)) {
+            cameraPosition = .region(MKCoordinateRegion(
+                center: station.coordinate,
+                span: MKCoordinateSpan(latitudeDelta: 0.015, longitudeDelta: 0.015)
+            ))
+        }
+    }
+    
+    func volverAlEncuadreGlobal() {
+        let posicionUsuario = viewModel.isDevMode ? viewModel.devLoc : (viewModel.clManager.location?.coordinate ?? viewModel.devLoc)
+        let regionGlobal = regionParaEnfocar(estaciones: viewModel.stations, usuario: posicionUsuario)
+        withAnimation(.easeInOut(duration: 1.2)) {
+            cameraPosition = .region(regionGlobal)
+        }
+    }
+
+    // ==========================================
+    // 3. VISTA DEL PANEL DE DETALLES (BOTTOM SHEET)
+    // ==========================================
     @ViewBuilder
     func detallesSheet(station: GasStation) -> some View {
         VStack(spacing: 20) {
@@ -152,109 +177,100 @@ struct ContentView: View {
                 Image(getLogoName(for: station.name)).resizable().scaledToFit().frame(width: 50, height: 50)
                 VStack(alignment: .leading) {
                     Text(station.name).font(.title2).bold()
-                    Text("\(station.distanceMiles, specifier: "%.1f") miles away").font(.subheadline)
+                    Text("\(station.distanceMiles, specifier: "%.1f") mi de distancia").font(.subheadline).foregroundColor(.gray)
                 }
                 Spacer()
-                Text(station.formattedPrice).font(.title).bold().foregroundColor(.green)
+                Text(station.formattedPrice).font(.title).bold().foregroundColor(colorForRanking(station.ranking))
             }
             
             Divider()
             
+            // SIMULADOR
             VStack(spacing: 15) {
-                Text("Savings Simulator").font(.headline)
+                HStack {
+                    Text("Simulador de Ahorro").font(.headline)
+                    Spacer()
+                    Text("Vehículo: \(tankCapacity, specifier: "%.1f") Gal").font(.caption).foregroundColor(.blue)
+                }
+                
                 HStack(spacing: 30) {
                     GasTankView(progress: gallonsToFill / tankCapacity)
+                    
                     VStack(alignment: .leading) {
                         let savings = (viewModel.averagePrice - station.price) * gallonsToFill
-                        Text("$\(savings, specifier: "%+.2f")")
+                        Text("$\(abs(savings), specifier: savings >= 0 ? "+%.2f" : "-%.2f")")
                             .font(.system(size: 40, weight: .bold, design: .rounded))
                             .foregroundColor(savings >= 0 ? .green : .red)
-                        Text("Compared to local avg: $\(viewModel.averagePrice, specifier: "%.2f")").font(.caption2).foregroundColor(.secondary)
-                        Text("Filling \(gallonsToFill, specifier: "%.1f") gallons").font(.subheadline).bold()
+                        Text("Promedio local: $\(viewModel.averagePrice, specifier: "%.2f")").font(.caption2).foregroundColor(.secondary)
+                        Text("Llenando \(gallonsToFill, specifier: "%.1f") galones").font(.subheadline).bold()
                     }
+                    Spacer()
                 }
-                Slider(value: $gallonsToFill, in: 0...tankCapacity, step: 0.5)
-                    .tint(viewModel.averagePrice - station.price >= 0 ? .green : .red)
+                
+                Slider(value: $gallonsToFill, in: 0...tankCapacity, step: 0.1)
+                    .tint(.blue)
+                    .onChange(of: gallonsToFill) { _ in
+                        // Vibración suave al mover el slider
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    }
             }
-            .padding().background(Color(red: 0.05, green: 0.1, blue: 0.2)).cornerRadius(15)
+            .padding().background(Color(red: 0.1, green: 0.15, blue: 0.25)).cornerRadius(15)
             
-            Button("Navigate to Station") {
+            Button(action: {
                 let url = URL(string: "http://maps.apple.com/?daddr=\(station.coordinate.latitude),\(station.coordinate.longitude)")!
                 UIApplication.shared.open(url)
-            }.buttonStyle(.borderedProminent)
-            
+            }) {
+                HStack {
+                    Image(systemName: "location.fill")
+                    Text("Cómo llegar (Ir)")
+                }
+                .frame(maxWidth: .infinity)
+                .padding()
+                .background(Color.blue)
+                .foregroundColor(.white)
+                .cornerRadius(12)
+                .font(.headline)
+            }
             Spacer()
         }
-        .padding().presentationDetents([.medium])
+        .padding()
+        .presentationDetents([.fraction(0.55), .large]) // El panel sube hasta la mitad primero
     }
 }
 
-// 3. COMPONENTE TARJETA DE LA LISTA
+// ==========================================
+// 4. COMPONENTE TARJETA DE LA LISTA (CARRUSEL)
+// ==========================================
 struct StationCard: View {
     let station: GasStation
+    
     var body: some View {
         HStack(spacing: 12) {
-            Text("\(station.ranking)").font(.system(size: 24, weight: .black, design: .rounded))
-                .foregroundColor(station.ranking == 1 ? .blue : .red).frame(width: 40)
+            // Número de Ranking
+            Text("\(station.ranking)")
+                .font(.system(size: 20, weight: .black, design: .rounded))
+                .foregroundColor(station.ranking == 2 ? .black : .white)
+                .frame(width: 30, height: 30)
+                .background(Circle().fill(colorForRanking(station.ranking)))
+            
             VStack(alignment: .leading, spacing: 4) {
                 Text(station.name).font(.headline).lineLimit(1)
                 HStack {
                     Text(station.formattedPrice).font(.title3).bold()
+                        .foregroundColor(colorForRanking(station.ranking))
                     Spacer()
                     Text("\(station.distanceMiles, specifier: "%.1f") mi").font(.caption).opacity(0.7)
                 }
             }
         }
-        .padding().frame(width: 260).background(Color(red: 0.05, green: 0.1, blue: 0.2))
-        .foregroundColor(.white).cornerRadius(15)
-        .overlay(RoundedRectangle(cornerRadius: 15).stroke(station.ranking == 1 ? .blue : .red.opacity(0.5), lineWidth: 2))
+        .padding()
+        .frame(width: 240)
+        .background(Color(red: 0.1, green: 0.15, blue: 0.25))
+        .foregroundColor(.white)
+        .cornerRadius(15)
+        .overlay(RoundedRectangle(cornerRadius: 15).stroke(colorForRanking(station.ranking), lineWidth: station.ranking == 1 ? 2 : 1))
     }
 }
-
-// 4. FUNCIONES DE AYUDA (LOGOS Y CÁMARA)
-func getLogoName(for stationName: String) -> String {
-    let name = stationName.lowercased()
-    if name.contains("76") { return "76_1" }
-    if name.contains("costco") { return "costco_2" }
-    if name.contains("shell") { return "shell_2" }
-    if name.contains("mobil") { return "mobil_2" }
-    if name.contains("exxon") { return "exxon_1" }
-    if name.contains("chevron") { return "exxon_1" }
-    if name.contains("eleven") || name.contains("7-") { return "gasolina_1" }
-    return "gasolina_1"
-}
-
-func regionParaEnfocar(estaciones: [GasStation], usuario: CLLocationCoordinate2D) -> MKCoordinateRegion {
-    var minLat = usuario.latitude
-    var maxLat = usuario.latitude
-    var minLng = usuario.longitude
-    var maxLng = usuario.longitude
-    
-    // Encontramos los límites extremos
-    for station in estaciones {
-        minLat = min(minLat, station.coordinate.latitude)
-        maxLat = max(maxLat, station.coordinate.latitude)
-        minLng = min(minLng, station.coordinate.longitude)
-        maxLng = max(maxLng, station.coordinate.longitude)
-    }
-    
-    // Calculamos el centro
-    let centro = CLLocationCoordinate2D(
-        latitude: (minLat + maxLat) / 2,
-        longitude: (minLng + maxLng) / 2
-    )
-    
-    // Calculamos el "span" (qué tan abierto es el zoom)
-    // Añadimos un multiplicador (1.5) para que no queden pegados al borde (padding)
-    let span = MKCoordinateSpan(
-        latitudeDelta: abs(maxLat - minLat) * 1.5,
-        longitudeDelta: abs(maxLng - minLng) * 1.5
-    )
-    
-    return MKCoordinateRegion(center: centro, span: span)
-}
-
-
 
 #Preview {
     ContentView()

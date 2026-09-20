@@ -1,68 +1,28 @@
-//
-//  GasTankView.swift
-//  GasolinaApp
-//
-//  Created by Carlos Vicente Pinto on 8/7/26.
-//
-
 import SwiftUI
 
 struct GasTankView: View {
-    let progress: Double // Valor de 0.0 a 1.0
-    
-    // Lógica de colores dinámica según el llenado
-    var tankColor: Color {
-        if progress > 0.7 { return .green }
-        if progress > 0.3 { return .yellow }
-        return .red
-    }
+    var progress: Double // De 0.0 a 1.0
     
     var body: some View {
-        VStack(spacing: 8) {
-            ZStack(alignment: .bottom) {
-                // Fondo del tanque (vacío)
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(Color.gray.opacity(0.2))
-                    .frame(width: 60, height: 120)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 10)
-                            .stroke(Color.white.opacity(0.5), lineWidth: 2)
-                    )
-                
-                // Gasolina (líquido que sube)
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(
-                        LinearGradient(
-                            colors: [tankColor, tankColor.opacity(0.6)],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-                    .frame(width: 52, height: CGFloat(progress) * 112)
-                    .padding(4)
-                    .animation(.spring(response: 0.4, dampingFraction: 0.6), value: progress)
-                
-                // Brillo para efecto de cristal 3D
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(
-                        LinearGradient(colors: [.white.opacity(0.2), .clear], startPoint: .leading, endPoint: .trailing)
-                    )
-                    .frame(width: 60, height: 120)
-            }
+        ZStack(alignment: .bottom) {
+            // Fondo oscuro del tanque
+            RoundedRectangle(cornerRadius: 10)
+                .fill(Color.black.opacity(0.5))
+                .frame(width: 50, height: 90)
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.gray, lineWidth: 2))
             
-            // Texto del porcentaje
-            Text("\(Int(progress * 100))%")
-                .font(.system(.caption, design: .monospaced))
-                .bold()
-                .foregroundColor(tankColor)
+            // Líquido que sube (Animado)
+            RoundedRectangle(cornerRadius: 10)
+                .fill(fillColor)
+                .frame(width: 50, height: 90 * CGFloat(progress))
+                .animation(.easeInOut, value: progress)
         }
     }
-}
-
-// Esto es opcional, sirve para ver el diseño en Xcode sin correr la app
-#Preview {
-    ZStack {
-        Color.black.ignoresSafeArea()
-        GasTankView(progress: 0.5)
+    
+    // Calcula el color dependiendo de qué tan lleno esté
+    var fillColor: Color {
+        if progress >= 0.6 { return .green }
+        else if progress >= 0.25 { return .yellow }
+        else { return .red }
     }
 }

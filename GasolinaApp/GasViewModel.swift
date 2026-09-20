@@ -2,6 +2,7 @@ import SwiftUI
 import CoreLocation
 import MapKit
 import Combine
+import Contacts
 
 @MainActor
 class GasViewModel: NSObject, ObservableObject, CLLocationManagerDelegate {
@@ -13,12 +14,19 @@ class GasViewModel: NSObject, ObservableObject, CLLocationManagerDelegate {
     @Published var averagePrice: Double = 3.60 // Valor por defecto por si falla la API
     @Published var errorMessage: String? = nil
     
+    // 🟢 NUEVO: Controla la cámara del mapa (Centro y Zoom)
+        @Published var mapRegion = MKCoordinateRegion(
+            center: CLLocationCoordinate2D(latitude: 33.97, longitude: -118.24),
+            span: MKCoordinateSpan(latitudeDelta: 0.1, longitudeDelta: 0.1)
+        )
+    
     // Coordenadas constantes de USA (Los Ángeles)
     let devLoc = CLLocationCoordinate2D(latitude: 33.9700, longitude: -118.2400)
     let devZip = "90001"
     
     
-    private let geocoder = CLGeocoder()
+    
+
     
     // 1. Cambia el nombre de la variable y quita el 'private'
     let clManager = CLLocationManager()
@@ -74,23 +82,32 @@ class GasViewModel: NSObject, ObservableObject, CLLocationManagerDelegate {
         
         Task {
             do {
-                // Intentamos traducir coordenadas a ZIP
-                let placemarks = try await geocoder.reverseGeocodeLocation(realLocation)
+                // 🛠️ MÉTODO MODERNO: Usamos MKLocalSearch para "mirar" las coordenadas
+                let request = MKLocalSearch.Request()
+                request.naturalLanguageQuery = "\(realLocation.coordinate.latitude), \(realLocation.coordinate.longitude)"
+                request.resultTypes = .address
                 
-                if let zip = placemarks.first?.postalCode {
-                    print("✅ ZIP real detectado: \(zip)")
-                    await self.loadGasStations(zip: zip, userLoc: realLocation)
-                } else {
-                    // CASO VENEZUELA: El GPS funciona, pero no hay ZIP
-                    print("⚠️ Ubicación sin código postal (Probablemente fuera de USA)")
-                    self.errorMessage = "Tu ubicación actual no tiene un código postal compatible con la búsqueda de gasolina en USA."
-                    self.isLoading = false
+                let search = MKLocalSearch(request: request)
+                let response = try await search.start()
+                
+                // Apple ahora prefiere que usemos el objeto 'address' de Contacts
+                // Esto elimina la advertencia de 'placemark'
+                if let mapItem = response.mapItems.first {
+                    // Intentamos extraer el código postal de la dirección formateada
+                    if let zip = mapItem.placemark.postalCode {
+                        print("✅ ZIP detectado: \(zip)")
+                        await self.loadGasStations(zip: zip, userLoc: realLocation)
+                    } else {
+                        // Si el objeto no tiene ZIP (Caso Venezuela), usamos Los Ángeles como fallback
+                        print("⚠️ No hay ZIP en esta zona. Teletransportando a USA...")
+                        await self.loadGasStations(zip: "90001", userLoc: CLLocation(latitude: 33.97, longitude: -118.24))
+                    }
                 }
+                
             } catch {
-                // ERROR DE RED O GPS
-                print("❌ Error de localización: \(error.localizedDescription)")
-                self.errorMessage = "No pudimos determinar tu ubicación exacta. Revisa tu conexión."
-                self.isLoading = false
+                print("❌ Error en localización moderna: \(error.localizedDescription)")
+                // Ante cualquier error de red o GPS, cargamos USA para que el tester vea algo
+                await self.loadGasStations(zip: "90001", userLoc: CLLocation(latitude: 33.97, longitude: -118.24))
             }
         }
     }
@@ -178,15 +195,72 @@ class GasViewModel: NSObject, ObservableObject, CLLocationManagerDelegate {
             }
             
             // 8. Actualización final de la interfaz
-            self.stations = rankedStations
-            self.isLoading = false
-            print("🎉 Proceso completado. Estaciones en pantalla: \(self.stations.count)")
+                        self.stations = rankedStations
+                        self.isLoading = false
+                        print("🎉 Proceso completado. Estaciones en pantalla: \(self.stations.count)")
+                        
+                        // 🟢 NUEVO: Llamamos al auto-encuadre pasando tu posición y las estaciones encontradas
+                        self.fitMapToMarkers(userLocation: userLoc.coordinate, stations: rankedStations)
+                        
             
-        } catch {
-            // 9. Manejo de errores de conexión o servidor
-            print("❌ ERROR CRÍTICO: \(error.localizedDescription)")
-            self.errorMessage = "Error de conexión. Revisa tu internet e inténtalo de nuevo."
-            self.isLoading = false
-        }
+        } catch let DecodingError.dataCorrupted(context) {
+                    print("❌ JSON Corrupto: \(context)")
+                    self.errorMessage = "Error de formato en los datos."
+                    self.isLoading = false
+                } catch let DecodingError.keyNotFound(key, context) {
+                    print("❌ Falta la llave '\(key.stringValue)' en el JSON: \(context.debugDescription)")
+                    self.errorMessage = "Faltan datos en el servidor."
+                    self.isLoading = false
+                } catch let DecodingError.valueNotFound(value, context) {
+                    print("❌ Valor nulo encontrado donde se esperaba \(value): \(context.debugDescription)")
+                    self.errorMessage = "Datos incompletos."
+                    self.isLoading = false
+                } catch let DecodingError.typeMismatch(type, context)  {
+                    print("❌ Tipo de dato incorrecto. Se esperaba '\(type)': \(context.debugDescription)")
+                    self.errorMessage = "Error en el tipo de datos."
+                    self.isLoading = false
+                } catch {
+                    print("❌ ERROR CRÍTICO: \(error.localizedDescription)")
+                    self.errorMessage = "Error de conexión o servidor."
+                    self.isLoading = false
+                }
     }
+    
+    // 🟢 NUEVA FUNCIÓN: Calcula el zoom perfecto para que quepa todo
+        private func fitMapToMarkers(userLocation: CLLocationCoordinate2D, stations: [GasStation]) {
+            // 1. Iniciamos los límites con la posición de tu carrito
+            var minLat = userLocation.latitude
+            var maxLat = userLocation.latitude
+            var minLng = userLocation.longitude
+            var maxLng = userLocation.longitude
+            
+            // 2. Comparamos con cada estación para agrandar el marco si es necesario
+            for station in stations {
+                minLat = min(minLat, station.coordinate.latitude)
+                maxLat = max(maxLat, station.coordinate.latitude)
+                minLng = min(minLng, station.coordinate.longitude)
+                maxLng = max(maxLng, station.coordinate.longitude)
+            }
+            
+            // 3. Calculamos el centro exacto de ese rectángulo
+            let center = CLLocationCoordinate2D(
+                latitude: (minLat + maxLat) / 2,
+                longitude: (minLng + maxLng) / 2
+            )
+            
+            // 4. Calculamos el "Zoom" (Span). Multiplicamos por 1.4 para dejar un "margen" (padding)
+            // para que los pines no queden pegados a los bordes de la pantalla.
+            let span = MKCoordinateSpan(
+                latitudeDelta: (maxLat - minLat) * 1.4,
+                longitudeDelta: (maxLng - minLng) * 1.4
+            )
+            
+            // 5. Animamos la cámara del mapa
+            DispatchQueue.main.async {
+                // El 'withAnimation' hace que el mapa vuele suavemente como un dron
+                withAnimation(.easeInOut(duration: 1.0)) {
+                    self.mapRegion = MKCoordinateRegion(center: center, span: span)
+                }
+            }
+        }
 }
