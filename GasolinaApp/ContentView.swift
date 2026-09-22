@@ -27,7 +27,7 @@ struct ContentView: View {
     
     @State private var gallonsToFill: Double = 14.0
     private let tankCapacity: Double = 14.0
-
+    
     var body: some View {
         ZStack {
             // CAPA 1: MAPA
@@ -44,7 +44,7 @@ struct ContentView: View {
                             .resizable().scaledToFit().frame(width: 40, height: 40).shadow(radius: 3)
                     }
                 }
-
+                
                 // GASOLINERAS USANDO EL COMPONENTE MODULAR
                 ForEach(viewModel.stations) { station in
                     Annotation(station.name, coordinate: station.coordinate) {
@@ -58,7 +58,7 @@ struct ContentView: View {
             .mapStyle(.standard(emphasis: .muted))
             .preferredColorScheme(.dark)
             .ignoresSafeArea()
-
+            
             // CAPA 2: BOTÓN FLOTANTE (RECARGAR)
             VStack {
                 Spacer()
@@ -80,7 +80,7 @@ struct ContentView: View {
                     .padding(.bottom, viewModel.stations.isEmpty ? 30 : 130)
                 }
             }
-
+            
             // CAPA 3: LISTA DE TARJETAS HORIZONTALES (CARRUSEL)
             VStack {
                 Spacer()
@@ -99,7 +99,7 @@ struct ContentView: View {
                     }
                 }
             }
-
+            
             // CAPA 4: INDICADOR DEV
             if viewModel.isDevMode {
                 VStack {
@@ -143,7 +143,7 @@ struct ContentView: View {
             }
         }
     }
-
+    
     // ==========================================
     // 2. FUNCIONES DE CÁMARA
     // ==========================================
@@ -164,7 +164,7 @@ struct ContentView: View {
             cameraPosition = .region(regionGlobal)
         }
     }
-
+    
     // ==========================================
     // 3. VISTA DEL PANEL DE DETALLES (BOTTOM SHEET)
     // ==========================================
@@ -197,23 +197,35 @@ struct ContentView: View {
                     GasTankView(progress: gallonsToFill / tankCapacity)
                     
                     VStack(alignment: .leading) {
-                        let savings = (viewModel.averagePrice - station.price) * gallonsToFill
-                        Text("$\(abs(savings), specifier: savings >= 0 ? "+%.2f" : "-%.2f")")
+                        // 1. Usamos la nueva variable 'highestPrice'
+                        let savings = (viewModel.highestPrice - station.price) * gallonsToFill
+                        
+                        // 2. Formateo: Si ahorras algo (>0) es Verde con un "+". Si es 0, queda normal.
+                        Text("$\(abs(savings), specifier: savings > 0 ? "+%.2f" : "%.2f")")
                             .font(.system(size: 40, weight: .bold, design: .rounded))
-                            .foregroundColor(savings >= 0 ? .green : .red)
-                        Text("Promedio local: $\(viewModel.averagePrice, specifier: "%.2f")").font(.caption2).foregroundColor(.secondary)
-                        Text("Llenando \(gallonsToFill, specifier: "%.1f") galones").font(.subheadline).bold()
+                            .foregroundColor(savings > 0 ? .green : .primary)
+                        
+                        // 3. Cambiamos el texto explicativo para el usuario
+                        Text("Frente a la más cara: $\(viewModel.highestPrice, specifier: "%.2f")")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                        
+                        Text("Llenando \(gallonsToFill, specifier: "%.1f") galones")
+                            .font(.subheadline)
+                            .bold()
                     }
                     Spacer()
                 }
                 
+                // 4. Actualizamos el Slider para que siempre sea verde (ya que siempre hay ahorro o es igual a 0)
                 Slider(value: $gallonsToFill, in: 0...tankCapacity, step: 0.1)
-                    .tint(.blue)
+                    .tint(.green)
                     .onChange(of: gallonsToFill) { _ in
                         // Vibración suave al mover el slider
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
                     }
             }
+            .padding().background(Color(red: 0.1, green: 0.15, blue: 0.25)).cornerRadius(15)
             .padding().background(Color(red: 0.1, green: 0.15, blue: 0.25)).cornerRadius(15)
             
             Button(action: {
